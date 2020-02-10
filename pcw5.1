@@ -1,0 +1,37 @@
+clear all
+// Import new data stockton4.dta
+use "/Users/MacOne/Downloads/stockton4.dta"
+
+// Generate new bedroom variable to test relationship by number of bedrooms in the house
+gen bedroom = 0
+replace bedroom = 2 if beds == 2
+replace bedroom = 3 if beds == 3
+replace bedroom = 4 if beds == 4
+
+// Generate log value for sprice variable
+gen log_sprice = ln(sprice)
+
+// Perform simple linear regression for ln(sprice), livarea, and age
+sort bedroom
+by bedroom: reg log_sprice livarea age
+
+// For two bedroom houses, one unit increase in price results in 7.7 unit increase in living area and .3 increase in age. 
+// For three bedroom house, one unit increase in price results in 6 unit increase in living area and .03 decrease in age. 
+// For four bedroom houses, one unit increase in price results in 5.8 unit increase in living area and .01 decrease in age. 
+// Overall, the relationships are statistically significant but not economically significant. 
+// There is almost no difference in age for three and four bedroom houses, although the age difference for two bedroom houses 
+// is not much more significant at .3 unit. 
+// The difference in pricing for two bedroom houses are the most beneficial for home buyers because the area increase is the 
+// largest per price unit.
+
+// Calculate the numerator for the F-statistics test
+di (69.2467085 -  69.0291994) / 4
+05437728
+
+// Calculate the denominator for the F-statistics test
+di 69.0291994/1490
+04632832
+
+// Perform F-statistics
+di 05437728/04632832
+1.1737374
