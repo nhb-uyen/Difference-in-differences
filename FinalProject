@@ -1,0 +1,168 @@
+clear
+*load WDI data
+*wbopendata, indicator(SP.DYN.IMRT.IN) clear long 
+*save wdidataMay2016, replace
+use "/Users/MacOne/Downloads/FAid_Final.dta"
+cd  /Users/MacOne/Downloads/
+/Users/MacOne/Downloads
+use "/Users/MacOne/Downloads/wdidataMay2016.dta"
+use wdidataMay2016, clear
+rename countrycode risocode
+rename sp_dyn_imrt_in imr
+keep risocode year imr
+sort risocode year
+
+*merge in data from U.S. Food Aid and Civil Conflict” by Nathan Nunn and Nancy Qian 
+*(American Economic Review 2014, 104(6): 1630-1666 http://dx.doi.org/10.1257/aer.104.6.1630)
+merge 1:1 risocode year using FAid_final
+drop if _merge~=3
+drop if year<1981 | year>2006
+drop if risocode=="GNQ" //make sample comparable to Nunn, Qinn
+rename recipient_country country
+rename wheat_aid uswheat_aid
+rename US_wheat_prod uswheat_prod
+rename s2unUSA unvotes
+rename fadum_avg avg_fap
+rename intra_state intrstate_war
+rename intra_state_onset onset
+egen avg_annual_precip = rowmean(all_Precip_jan all_Precip_feb all_Precip_mar all_Precip_apr ///
+     all_Precip_may all_Precip_jun all_Precip_jul all_Precip_aug all_Precip_sep all_Precip_oct all_Precip_nov all_Precip_dec)
+keep uswheat_aid avg_fap uswheat_prod country year avg_annual_precip uswheat_prod ///
+     intrstate_war any_war intensity imr total_population unvotes onset USprod_Cabbages USprod_Carrots_turnips ///
+	 USprod_Cotton_lint USprod_Grapefruit USprod_Grapes USprod_Lettuce ///
+	 USprod_Onions_dry USprod_Oranges USprod_Peaches_nectarines USprod_Watermelons
+save rawdata, replace
+
+*load in rawdata.dta which was created using importing data.do
+use rawdata, clear
+**Converting Wheat aid and production to thousands of tonnes
+replace uswheat_aid=uswheat_aid/1000 	
+replace uswheat_prod=uswheat_prod/1000
+
+**Creating rainshock variable
+egen countrynum = group(country)
+order country countrynum
+sort country 
+by country:  egen avrain = mean(avg_annual_precip)
+gen rainshock = avg_annual_precip/avrain
+
+**Interaction of uswheat_prod with avg_fap
+xtset countrynum year
+gen inst1 = l.uswheat_prod*avg_fap
+
+**Various measures of IMR
+gen dlnimr = ln(imr)-ln(l.imr)
+gen dimr = imr-l.imr 
+sort country
+by country: egen avimr = mean(imr)
+
+**Creating natural log of US wheat aid variable
+gen lnfaid = ln(1+uswheat_aid)
+
+**Creating natural log of population variable
+gen lnpop = ln(1+total_population)
+
+**Creating UN voting records variable
+bysort country: egen unvotes_avg=mean(unvotes) if year>=1981 & year<=2006
+sum unvotes_avg if year==2000, detail
+gen Align=.
+replace Align=1 if unvotes_avg>.5189338 & missing(unvotes_avg)!=1
+replace Align=0 if unvotes_avg<=.5189338
+sum Align, detail
+gen uswheat_aid_x_Align=uswheat_aid*Align
+
+**Interaction of US production variables with avg_fap for placebo test
+sort countrynum year  
+gen cabbage = (l.USprod_Cabbages/1000)* avg_fap
+gen carrots_turnips= (l.USprod_Carrots_turnips/1000)* avg_fap
+gen cotton_lint= (l.USprod_Cotton_lint/1000)*avg_fap
+gen grapefruit= (l.USprod_Grapefruit/1000)*avg_fap
+gen grapes= (l.USprod_Grapes/1000)*avg_fap
+gen lettuce= (l.USprod_Lettuce/1000)*avg_fap
+gen onions_dry= (l.USprod_Onions_dry/1000)*avg_fap
+gen oranges= (l.USprod_Oranges/1000)*avg_fap
+gen peaches_nectarines= (l.USprod_Peaches_nectarines/1000)*avg_fap
+gen watermelons= (l.USprod_Watermelons/1000)*avg_fap
+
+save processed_data, replace
+*this file will be used by creating tables.do
+
+ssc install asdoc
+
+**Table 1: Descriptive Statistics
+asdoc summ imr dimr uswheat_aid lnfaid avg_fap intrstate_war rainshock lnpop, replace
+
+***************
+***EXTENSION***
+***************
+
+*Generating new a dataset contaning dadta from Ethiopia, Eritrea, Somalia, 
+*and the Democratic Republic of Congo.
+keep if countrynum==42|countrynum==41|countrynum==102|countrynum==30
+drop USprod_Cabbages USprod_Carrots_turnips USprod_Cotton_lint USprod_Grapefruit USprod_Grapes USprod_Lettuce USprod_Onions_dry USprod_Oranges USprod_Peaches_nectarines USprod_Watermelons
+drop cabbage carrots_turnips cotton_lint grapefruit grapes lettuce onions_dry oranges peaches_nectarines watermelons
+
+**Table 2: Descriptive Statistics
+asdoc, summarize countrynum year imr uswheat_aid avg_fap dimr lnfaid, replace
+
+***************
+**METHODOLOGY**
+***************
+
+*The difference-in-differences (DD) model allows us to regress the variables of two different groups on 
+*similar covariates so that heterogeneity can be detected. In the same period, around 2002, Somalia, 
+*the Democratic Republic of Congo (DR Congo), Ethiopia and Eritrea all suffered from either severe drought, 
+*intrastate conflict, or a combination of the two. Thus, there were food shortages in production and access in 
+*all these four countries. However, the U.S. did not provide wheat food aid for Somalia and the DR Congo so they 
+*are selected as counterfactuals for the DD model.
+
+*Selected treatment: Ethiopia and Eritrea
+*Selected control: Somalia, DR Congo
+ 
+*Possible limitations:
+*Parallel trends: The parallel trends assumption is based on the reasoning that if pre-treatment trends 
+*are parallel, or input variables are similar and the same, then the post-treatment trends will also be parallel. 
+*Thus, I used the data from the two country groups (Somalia and DR Congo, Ethiopia and Eritrea) to demonstrate how 
+*countries with the same conditions may be affected differently with and without the U.S. food aid. There is no way 
+*to test this assumption directly so we have to resort to deduction. Somalia and the DR Congo have been in constant 
+*civil unrest and famine, including the fact that they are both landlocked countries. Ethiopia and Eritrea, despite 
+*being coastal countries at the horn of Africa, also endured civil unrest and a prolonged period of drought from 2002 
+*onwards. Thus, we can infer that all four countries had a similar trajectory prior to 2002. The U.S. wheat food aid to 
+*Ethiopia and Eritrea may show significant impact on these two countries’ ability to increase infant life expectancy.
+ 
+*Compositional differences: We are aware that the two groups have differences in geographical location, in which both 
+*countries the treatment group possess sea ports, and thus, have an advantage with trading and the import of cheaper goods 
+*than the landlocked countries in the control group. However, considering that all four countries were dealing with civil 
+*unrest at the time, I assume that the trade level of the countries in the treatment group is significantly lowered, which 
+*means the chance that external trading (for food stock other than with the U.S. and for U.S. food aid) can single-handedly 
+*explain for the increase in infant mortality rate is not high.
+ 
+*********** 
+**RESULTS**
+***********
+
+**Table 3: Linear regression
+gen post2k2 = 1 if year >=2002
+replace post2k2 =0 if post2k2 ==.
+gen treat = 1 if countrynum==41|countrynum==42
+replace treat = 0 if treat ==.
+gen post2k2int = treat*post2k2
+asdoc reg imr treat post2k2 post2k2int, replace
+
+*Creating scatterplots for data visualization 
+scatter uswheat_aid year, by(countrynum)
+scatter imr uswheat_aid year, by(countrynum)
+
+
+*The results reported in Table 3 are all significant according to the p-value. As shown in the table, the treatment 
+*has a negative relationship with the independent variable, meaning that an increase in U.S. wheat food aid correlates 
+*with a decrease in infant mortality rate. The general trend for infant mortality rate after the year 2002 is also inverse, 
+*suggesting that children's life expectancy increases over time. However, the large coefficient for the interaction term of 
+*U.S. wheat food aid post 2002 shows that the food aid alone can explain the decrease in infant mortality rate. 
+
+*The extension using Difference-in-Differences reaffirms the fact that U.S. wheat food aid has a positive impact on the 
+*infant mortality rate of countries experiencing famine and civil unrest. Further research can focus on other causal 
+*inference models to further test the generalizability of this result as a disadvantage in the DD model is that it relies 
+*on deduction.
+
+
